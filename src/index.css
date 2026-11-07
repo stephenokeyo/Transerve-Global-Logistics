@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  
+  code, pre, .font-mono, .tabular-nums {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  #shipping-label-print-area,
+  #shipping-label-print-area * {
+    visibility: visible;
+  }
+
+  #shipping-label-print-area {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 4in;
+    height: 6in;
+    margin: 0;
+    padding: 0;
+    background: #ffffff !important;
+    color: #000000 !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  @page {
+    size: 4in 6in;
+    margin: 0;
+  }
+}

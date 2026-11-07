@@ -1,0 +1,66 @@
+import { pgTable, serial, text, timestamp, boolean, integer, real } from 'drizzle-orm/pg-core';
+
+export const users = pgTable('users', {
+  id: serial('id').primaryKey(),
+  uid: text('uid').notNull().unique(), // Firebase Auth UID
+  email: text('email').notNull(),
+  name: text('name').notNull(),
+  role: text('role').notNull().default('customer'), // 'admin' | 'shipper' | 'customer'
+  company: text('company'),
+  phone: text('phone'),
+  status: text('status').notNull().default('active'),
+  createdAt: timestamp('created_at').defaultNow(),
+  lastLogin: timestamp('last_login').defaultNow(),
+});
+
+export const shipments = pgTable('shipments', {
+  id: serial('id').primaryKey(),
+  trackingNumber: text('tracking_number').notNull().unique(),
+  referenceNumber: text('reference_number').notNull(),
+  carrier: text('carrier').notNull(),
+  serviceLevel: text('service_level').notNull(),
+  status: text('status').notNull(),
+  shipperName: text('shipper_name').notNull(),
+  shipperCompany: text('shipper_company'),
+  shipperStreet1: text('shipper_street1').notNull(),
+  shipperCity: text('shipper_city').notNull(),
+  shipperState: text('shipper_state').notNull(),
+  shipperZip: text('shipper_zip').notNull(),
+  shipperCountry: text('shipper_country').notNull(),
+  shipperEmail: text('shipper_email'),
+  recipientName: text('recipient_name').notNull(),
+  recipientCompany: text('recipient_company'),
+  recipientStreet1: text('recipient_street1').notNull(),
+  recipientCity: text('recipient_city').notNull(),
+  recipientState: text('recipient_state').notNull(),
+  recipientZip: text('recipient_zip').notNull(),
+  recipientCountry: text('recipient_country').notNull(),
+  recipientEmail: text('recipient_email'),
+  weightKg: real('weight_kg').notNull(),
+  lengthCm: integer('length_cm').notNull(),
+  widthCm: integer('width_cm').notNull(),
+  heightCm: integer('height_cm').notNull(),
+  declaredValueUsd: real('declared_value_usd').notNull(),
+  isFragile: boolean('is_fragile').notNull().default(false),
+  isColdChain: boolean('is_cold_chain').notNull().default(false),
+  requiresSignature: boolean('requires_signature').notNull().default(false),
+  baseCost: real('base_cost').notNull(),
+  fuelSurcharge: real('fuel_surcharge').notNull(),
+  totalCost: real('total_cost').notNull(),
+  currentCheckpointIndex: integer('current_checkpoint_index').notNull().default(0),
+  checkpointsJson: text('checkpoints_json').notNull(),
+  proofOfDeliveryJson: text('proof_of_delivery_json'),
+  specialInstructions: text('special_instructions'),
+  createdAt: timestamp('created_at').defaultNow(),
+  estimatedDelivery: timestamp('estimated_delivery').notNull(),
+});
+
+export const auditLogs = pgTable('audit_logs', {
+  id: serial('id').primaryKey(),
+  userId: text('user_id').notNull(),
+  userName: text('user_name').notNull(),
+  role: text('role').notNull(),
+  action: text('action').notNull(),
+  details: text('details').notNull(),
+  timestamp: timestamp('timestamp').defaultNow(),
+});

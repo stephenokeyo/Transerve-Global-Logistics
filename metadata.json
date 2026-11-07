@@ -1,0 +1,8 @@
+{
+  "name": "Vanguard Global Logistics",
+  "description": "Next-generation freight logistics platform featuring live real-time package telematics tracking and automated carrier shipping label generation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
