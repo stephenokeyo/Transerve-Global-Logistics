@@ -114,10 +114,15 @@ export const ShipmentManifest: React.FC<ShipmentManifestProps> = ({
   };
 
   // Download manifest list as a formatted CSV file for record-keeping
-  const handleExportCsv = (selectedOnly: boolean = false) => {
-    const targetShipments = selectedOnly && selectedIds.length > 0
-      ? filteredShipments.filter((s) => selectedIds.includes(s.id))
-      : filteredShipments;
+  const handleExportCsv = (mode: 'current' | 'selected' | 'all' = 'current') => {
+    let targetShipments: Shipment[];
+    if (mode === 'selected') {
+      targetShipments = shipments.filter((s) => selectedIds.includes(s.id));
+    } else if (mode === 'all') {
+      targetShipments = shipments;
+    } else {
+      targetShipments = filteredShipments;
+    }
 
     if (targetShipments.length === 0) {
       setExportNotice(t('manifest.noShipmentsToExport'));
@@ -135,31 +140,47 @@ export const ShipmentManifest: React.FC<ShipmentManifestProps> = ({
       'SLA Risk Reason',
       'Shipper Name',
       'Shipper Company',
+      'Origin Address',
       'Origin City',
       'Origin State',
       'Origin ZipCode',
+      'Origin Country',
+      'Origin Phone',
       'Recipient Name',
       'Recipient Company',
+      'Destination Address',
       'Destination City',
       'Destination State',
       'Destination ZipCode',
+      'Destination Country',
+      'Destination Phone',
       'Weight (kg)',
       'Dimensions (cm)',
+      'Package Type',
       'Special Handling',
       'Declared Value (USD)',
-      'Total Cost (USD)',
+      'Base Freight Cost (USD)',
+      'Fuel Surcharge (USD)',
+      'Total Billed Cost (USD)',
       'Created Date',
       'Estimated Delivery Window',
+      'Latest Checkpoint Location',
     ];
 
     const rows = targetShipments.map((s) => {
       const sla = getShipmentSla(s);
       const specialHandling = [
-        s.package.isColdChain ? 'Cold-Chain' : null,
+        s.package.isColdChain ? 'Cold-Chain (-20°C)' : null,
         s.package.isFragile ? 'Fragile' : null,
         s.package.requiresSignature ? 'Direct-Signature' : null,
         s.package.isHazardous ? 'Hazmat' : null,
       ].filter(Boolean).join('; ') || 'Standard';
+
+      const originAddr = `${s.shipper.street1}${s.shipper.street2 ? ', ' + s.shipper.street2 : ''}`;
+      const destAddr = `${s.recipient.street1}${s.recipient.street2 ? ', ' + s.recipient.street2 : ''}`;
+      const latestCheckpoint = s.checkpoints && s.checkpoints.length > 0
+        ? s.checkpoints[s.checkpoints.length - 1]
+        : null;
 
       return [
         escapeCsv(s.trackingNumber),
@@ -171,35 +192,47 @@ export const ShipmentManifest: React.FC<ShipmentManifestProps> = ({
         escapeCsv(sla.riskReason || 'Nominal'),
         escapeCsv(s.shipper.name),
         escapeCsv(s.shipper.company || ''),
+        escapeCsv(originAddr),
         escapeCsv(s.shipper.city),
         escapeCsv(s.shipper.state),
         escapeCsv(s.shipper.zipCode || ''),
+        escapeCsv(s.shipper.country || 'USA'),
+        escapeCsv(s.shipper.phone || ''),
         escapeCsv(s.recipient.name),
         escapeCsv(s.recipient.company || ''),
+        escapeCsv(destAddr),
         escapeCsv(s.recipient.city),
         escapeCsv(s.recipient.state),
         escapeCsv(s.recipient.zipCode || ''),
+        escapeCsv(s.recipient.country || 'USA'),
+        escapeCsv(s.recipient.phone || ''),
         escapeCsv(s.package.weightKg),
         escapeCsv(`${s.package.lengthCm}x${s.package.widthCm}x${s.package.heightCm}`),
+        escapeCsv((s.package.packageType || 'box').toUpperCase()),
         escapeCsv(specialHandling),
         escapeCsv(s.package.declaredValueUsd ? s.package.declaredValueUsd.toFixed(2) : '0.00'),
-        escapeCsv(s.rates.totalCost ? s.rates.totalCost.toFixed(2) : '0.00'),
+        escapeCsv(s.rates?.baseCost ? s.rates.baseCost.toFixed(2) : '0.00'),
+        escapeCsv(s.rates?.fuelSurcharge ? s.rates.fuelSurcharge.toFixed(2) : '0.00'),
+        escapeCsv(s.rates?.totalCost ? s.rates.totalCost.toFixed(2) : '0.00'),
         escapeCsv(s.createdAt),
         escapeCsv(s.estimatedDelivery),
+        escapeCsv(latestCheckpoint ? `${latestCheckpoint.city}, ${latestCheckpoint.state} (${latestCheckpoint.description})` : 'Pending Dispatch Scan'),
       ].join(',');
     });
 
-    // \uFEFF Byte Order Mark for Excel/Numbers UTF-8 decoding
-    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.map((h) => `"${h}"`).join(','), ...rows].join('\r\n');
-    const encodedUri = encodeURI(csvContent);
+    // Prepend UTF-8 BOM (\uFEFF) for compatibility with Excel, Numbers, and Sheets
+    const csvContent = '\uFEFF' + [headers.map((h) => `"${h}"`).join(','), ...rows].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     const timestampStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 
-    link.setAttribute('href', encodedUri);
+    link.setAttribute('href', url);
     link.setAttribute('download', `Transerve_Shipment_Manifest_${timestampStr}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
 
     setExportNotice(t('manifest.exportedSuccess', { count: targetShipments.length }));
     setTimeout(() => setExportNotice(null), 4000);
@@ -326,25 +359,43 @@ export const ShipmentManifest: React.FC<ShipmentManifestProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {/* Export to CSV Button */}
+            {/* Primary Export CSV Button */}
             <button
-              onClick={() => handleExportCsv(false)}
+              type="button"
+              onClick={() => handleExportCsv('current')}
               disabled={filteredShipments.length === 0}
               className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-bold transition-all shadow-xs ${
                 filteredShipments.length > 0
                   ? 'bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-700 active:scale-95'
                   : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
               }`}
-              title={t('manifest.exportCsv')}
+              title={t('manifest.exportCsvDesc')}
             >
               <Download className="w-3.5 h-3.5 text-white" />
-              <span>{t('manifest.exportCsv')} ({filteredShipments.length})</span>
+              <span>{t('manifest.exportCsv')}</span>
+              <span className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-emerald-700/80 text-emerald-100">
+                {filteredShipments.length}
+              </span>
             </button>
+
+            {/* If filters applied and there are more total shipments, offer quick Export All option */}
+            {filteredShipments.length < shipments.length && (
+              <button
+                type="button"
+                onClick={() => handleExportCsv('all')}
+                className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold transition-colors shadow-2xs"
+                title={t('manifest.exportAll', { count: shipments.length })}
+              >
+                <Download className="w-3.5 h-3.5 text-slate-500" />
+                <span>{t('manifest.exportAll', { count: shipments.length })}</span>
+              </button>
+            )}
 
             {/* If selected rows, offer Export Selected */}
             {selectedIds.length > 0 && (
               <button
-                onClick={() => handleExportCsv(true)}
+                type="button"
+                onClick={() => handleExportCsv('selected')}
                 className="flex items-center gap-1.5 px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 rounded-lg text-xs font-semibold transition-colors shadow-xs"
                 title={t('manifest.exportSelected', { count: selectedIds.length })}
               >
@@ -355,6 +406,7 @@ export const ShipmentManifest: React.FC<ShipmentManifestProps> = ({
 
             {/* Print Driver Pickup Manifest */}
             <button
+              type="button"
               onClick={() => setShowManifestSummary(true)}
               disabled={selectedIds.length === 0}
               className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-white rounded-lg text-xs font-semibold transition-colors shadow-xs"
@@ -471,6 +523,18 @@ export const ShipmentManifest: React.FC<ShipmentManifestProps> = ({
             <option value="usps">USPS</option>
             <option value="dhl">DHL</option>
           </select>
+
+          {/* Quick Export CSV Button in toolbar */}
+          <button
+            type="button"
+            onClick={() => handleExportCsv('current')}
+            disabled={filteredShipments.length === 0}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors shadow-2xs disabled:opacity-50 disabled:cursor-not-allowed"
+            title={t('manifest.exportCsvDesc')}
+          >
+            <Download className="w-3.5 h-3.5 text-emerald-600" />
+            <span>{t('manifest.exportCsv')}</span>
+          </button>
         </div>
       </div>
 
@@ -653,7 +717,8 @@ export const ShipmentManifest: React.FC<ShipmentManifestProps> = ({
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => handleExportCsv(true)}
+              type="button"
+              onClick={() => handleExportCsv('selected')}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-semibold transition-colors shadow-2xs"
             >
               <Download className="w-3.5 h-3.5" />

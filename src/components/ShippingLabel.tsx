@@ -12,6 +12,7 @@ interface ShippingLabelProps {
 
 export const ShippingLabel: React.FC<ShippingLabelProps> = ({
   shipment,
+  onPrint,
   allowCarrierSwitch = true,
 }) => {
   const { t, formatDate, formatWeight, formatCurrency } = useI18n();
@@ -48,7 +49,11 @@ export const ShippingLabel: React.FC<ShippingLabelProps> = ({
   };
 
   const handlePrint = () => {
-    window.print();
+    if (onPrint) {
+      onPrint();
+    } else {
+      window.print();
+    }
   };
 
   const carrierThemes: Record<Carrier, { name: string; brandColor: string; accentColor: string; headerText: string }> = {

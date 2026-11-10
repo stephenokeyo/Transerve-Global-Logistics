@@ -10,7 +10,8 @@ import {
   Search, CheckCircle2, Clock, AlertCircle, FileText, ArrowRight,
   Shield, MapPin, Printer, RefreshCw, PenTool, ExternalLink, ChevronDown, ChevronUp,
   Timer, Truck, Calendar, Scale, Ruler, Leaf, Sparkles, Plane, Zap, Trees, ShieldCheck, Car,
-  Cloud, CloudRain, CloudSun, CloudSnow, CloudLightning, Sun, Droplets, Eye, Gauge, Compass, Wind
+  Cloud, CloudRain, CloudSun, CloudSnow, CloudLightning, Sun, Droplets, Eye, Gauge, Compass, Wind,
+  Package, Check, Activity
 } from 'lucide-react';
 import { 
   fetchSimulatedWeather, 
@@ -363,6 +364,87 @@ export const PackageTracker: React.FC<PackageTrackerProps> = ({
     ? `${currentCheckpoint.facilityName || currentCheckpoint.location} (${currentCheckpoint.city}, ${currentCheckpoint.state})`
     : `${currentShipment.recipient.city}, ${currentShipment.recipient.state}`;
 
+  // Shipping Lifecycle & Progress Stages (Processing -> In Transit -> Out for Delivery -> Delivered)
+  const shippingStages = useMemo(() => {
+    const status = currentShipment.status;
+    let activeIndex = 1;
+    const isException = status === 'exception';
+
+    if (status === 'label_created' || status === 'picked_up') {
+      activeIndex = 0;
+    } else if (status === 'in_transit' || status === 'customs_cleared') {
+      activeIndex = 1;
+    } else if (status === 'out_for_delivery') {
+      activeIndex = 2;
+    } else if (status === 'delivered') {
+      activeIndex = 3;
+    } else if (isException) {
+      activeIndex = 1;
+    }
+
+    const stages = [
+      {
+        id: 'processing',
+        title: t('tracker.stageProcessing'),
+        subtitle: t('tracker.stageProcessingDesc'),
+        icon: Package,
+        stepNumber: 1,
+        location: `${currentShipment.shipper.city}, ${currentShipment.shipper.state}`,
+        dateStr: formatDate(currentShipment.createdAt, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+      },
+      {
+        id: 'in_transit',
+        title: t('tracker.stageInTransit'),
+        subtitle: t('tracker.stageInTransitDesc'),
+        icon: Truck,
+        stepNumber: 2,
+        location: currentCheckpoint ? `${currentCheckpoint.city}, ${currentCheckpoint.state}` : 'Transit Hub',
+        dateStr: currentCheckpoint ? formatDate(currentCheckpoint.timestamp, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : undefined,
+      },
+      {
+        id: 'out_for_delivery',
+        title: t('tracker.stageOutForDelivery'),
+        subtitle: t('tracker.stageOutForDeliveryDesc'),
+        icon: Compass,
+        stepNumber: 3,
+        location: `${currentShipment.recipient.city} Courier Station`,
+        dateStr: currentShipment.rates.deliveryTimeWindow,
+      },
+      {
+        id: 'delivered',
+        title: t('tracker.stageDelivered'),
+        subtitle: t('tracker.stageDeliveredDesc'),
+        icon: CheckCircle2,
+        stepNumber: 4,
+        location: `${currentShipment.recipient.city}, ${currentShipment.recipient.state}`,
+        dateStr: status === 'delivered'
+          ? formatDate(currentShipment.estimatedDelivery, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+          : `Target: ${formatDate(currentShipment.estimatedDelivery, { month: 'short', day: 'numeric' })}`,
+      },
+    ];
+
+    let progressPercent = 0;
+    if (status === 'delivered') {
+      progressPercent = 100;
+    } else if (status === 'out_for_delivery') {
+      progressPercent = 75;
+    } else if (status === 'in_transit' || status === 'customs_cleared' || isException) {
+      progressPercent = 45;
+    } else if (status === 'picked_up') {
+      progressPercent = 25;
+    } else if (status === 'label_created') {
+      progressPercent = 12;
+    }
+
+    return {
+      stages,
+      activeIndex,
+      isDelivered: status === 'delivered',
+      isException,
+      progressPercent,
+    };
+  }, [currentShipment, currentCheckpoint, t, formatDate]);
+
   const [weather, setWeather] = useState<WeatherData | null>(() => 
     generateSimulatedWeather(currentLat, currentLng, currentLocationName)
   );
@@ -564,6 +646,151 @@ export const PackageTracker: React.FC<PackageTrackerProps> = ({
                   {' '}· {currentShipment.rates.deliveryTimeWindow}
                 </span>
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Visual Shipping Stage Progress Bar */}
+        <div className="p-6 border-b border-slate-100 bg-gradient-to-b from-slate-50/80 via-white to-white">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 bg-blue-50 text-blue-700 rounded-lg border border-blue-200 shadow-2xs">
+                <Activity className="w-4 h-4 text-blue-600" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider font-mono">
+                    {t('tracker.stagesTitle')}
+                  </h3>
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase font-mono ${
+                    shippingStages.isDelivered
+                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                      : shippingStages.isException
+                      ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                      : 'bg-blue-100 text-blue-800 border border-blue-200'
+                  }`}>
+                    {t('tracker.currentStageBadge', { 
+                      current: shippingStages.activeIndex + 1, 
+                      total: 4 
+                    })} · {shippingStages.stages[shippingStages.activeIndex].title}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  {shippingStages.isDelivered
+                    ? t('tracker.deliveredCompleted')
+                    : shippingStages.isException
+                    ? t('tracker.stageException')
+                    : shippingStages.stages[shippingStages.activeIndex].subtitle}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold tracking-wide shadow-2xs ${
+                shippingStages.isDelivered
+                  ? 'bg-emerald-600 text-white'
+                  : shippingStages.isException
+                  ? 'bg-rose-600 text-white'
+                  : 'bg-blue-600 text-white'
+              }`}>
+                {shippingStages.isDelivered ? (
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                ) : (
+                  <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                )}
+                <span>
+                  {shippingStages.isDelivered 
+                    ? t('tracker.stageCompleted') 
+                    : t('tracker.stageActive')}
+                </span>
+              </span>
+            </div>
+          </div>
+
+          {/* Stepper Progress Bar Track */}
+          <div className="relative pt-2 pb-2 px-1 sm:px-6">
+            {/* Background connecting bar across nodes */}
+            <div className="absolute top-7 left-8 right-8 sm:left-14 sm:right-14 h-1.5 bg-slate-200 rounded-full z-0 overflow-hidden">
+              <div
+                className={`h-full transition-all duration-700 ease-out rounded-full ${
+                  shippingStages.isDelivered
+                    ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600'
+                    : shippingStages.isException
+                    ? 'bg-gradient-to-r from-blue-600 to-amber-500'
+                    : 'bg-gradient-to-r from-blue-600 via-indigo-600 to-emerald-500'
+                }`}
+                style={{ width: `${shippingStages.progressPercent}%` }}
+              />
+            </div>
+
+            {/* 4 Stage Nodes */}
+            <div className="grid grid-cols-4 relative z-10">
+              {shippingStages.stages.map((stage, idx) => {
+                const isCompleted = idx < shippingStages.activeIndex || shippingStages.isDelivered;
+                const isActive = idx === shippingStages.activeIndex && !shippingStages.isDelivered;
+                const StageIcon = stage.icon;
+
+                return (
+                  <div key={stage.id} className="flex flex-col items-center text-center px-1">
+                    {/* Node circle */}
+                    <div
+                      className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center font-bold text-xs transition-all duration-300 relative ${
+                        isCompleted
+                          ? 'bg-emerald-600 text-white ring-4 ring-emerald-50 shadow-md shadow-emerald-200'
+                          : isActive
+                          ? 'bg-blue-600 text-white ring-4 ring-blue-100 shadow-md shadow-blue-200'
+                          : 'bg-white border-2 border-slate-300 text-slate-400 shadow-2xs'
+                      }`}
+                    >
+                      {isCompleted ? (
+                        <Check className="w-5 h-5 stroke-[2.5]" />
+                      ) : (
+                        <StageIcon className="w-4 h-4 sm:w-5 sm:h-5" />
+                      )}
+
+                      {/* Small Active Badge Pin */}
+                      {isActive && (
+                        <span className="absolute -top-2 px-1.5 py-0.2 bg-blue-900 text-white rounded text-[8px] font-black uppercase tracking-wider font-mono shadow-xs">
+                          NOW
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Stage Labels */}
+                    <div className="mt-3 space-y-0.5">
+                      <div className={`text-xs font-bold leading-tight ${
+                        isActive
+                          ? 'text-blue-900 font-extrabold'
+                          : isCompleted
+                          ? 'text-slate-900'
+                          : 'text-slate-400'
+                      }`}>
+                        {stage.title}
+                      </div>
+
+                      <div className={`text-[10px] hidden md:block leading-tight ${
+                        isActive
+                          ? 'text-blue-700 font-semibold'
+                          : isCompleted
+                          ? 'text-slate-600'
+                          : 'text-slate-400'
+                      }`}>
+                        {stage.subtitle}
+                      </div>
+
+                      <div className="text-[10px] text-slate-500 font-mono pt-0.5 truncate max-w-[85px] sm:max-w-[130px]">
+                        {stage.location}
+                      </div>
+
+                      {stage.dateStr && (
+                        <div className="text-[9px] text-slate-400 font-mono hidden sm:block">
+                          {stage.dateStr}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
