@@ -1,18 +1,21 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Shipment, Checkpoint, PackageDetails } from '../types/shipping';
-import { TrackingMap } from './TrackingMap';
+import { TrackingMap, getHubClassification } from './TrackingMap';
 import { ShippingLabel } from './ShippingLabel';
 import { ShipmentPrintSummary } from './ShipmentPrintSummary';
 import { RiskAssessment } from './RiskAssessment';
 import { updateShipmentCheckpoint } from '../data/mockShipments';
+import { createWorldwideShipment } from '../services/globalTrackingService';
 import { useI18n } from '../i18n/I18nContext';
 import { 
   Search, CheckCircle2, Clock, AlertCircle, FileText, ArrowRight,
   Shield, MapPin, Printer, RefreshCw, PenTool, ExternalLink, ChevronDown, ChevronUp,
   Timer, Truck, Calendar, Scale, Ruler, Leaf, Sparkles, Plane, Zap, Trees, ShieldCheck, Car,
   Cloud, CloudRain, CloudSun, CloudSnow, CloudLightning, Sun, Droplets, Eye, Gauge, Compass, Wind,
-  Package, Check, Activity
+  Package, Check, Activity, Warehouse, Building2, Layers,
+  Copy, Filter, ArrowUpDown, Navigation, Tag, Radio, Receipt
 } from 'lucide-react';
+import { PrintableReceiptModal } from './PrintableReceiptModal';
 import { 
   fetchSimulatedWeather, 
   generateSimulatedWeather, 
@@ -325,9 +328,20 @@ export const PackageTracker: React.FC<PackageTrackerProps> = ({
   const [searchError, setSearchError] = useState('');
   const [showLabelModal, setShowLabelModal] = useState(false);
   const [showPrintSummaryModal, setShowPrintSummaryModal] = useState(false);
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [instructions, setInstructions] = useState(currentShipment.specialInstructions || '');
   const [isEditingInstructions, setIsEditingInstructions] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [timelineSortOrder, setTimelineSortOrder] = useState<'newest' | 'oldest'>('newest');
+  const [timelineFilter, setTimelineFilter] = useState<'all' | 'completed' | 'active'>('all');
+  const [copiedCoordId, setCopiedCoordId] = useState<string | null>(null);
+
+  const handleCopyCoordinates = (id: string, lat: number, lng: number) => {
+    const text = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+    navigator.clipboard?.writeText(text);
+    setCopiedCoordId(id);
+    setTimeout(() => setCopiedCoordId(null), 2000);
+  };
 
   const [unitSystem, setUnitSystem] = useState<UnitSystem>(() => {
     try {
@@ -384,39 +398,51 @@ export const PackageTracker: React.FC<PackageTrackerProps> = ({
 
     const stages = [
       {
-        id: 'processing',
-        title: t('tracker.stageProcessing'),
-        subtitle: t('tracker.stageProcessingDesc'),
-        icon: Package,
+        id: 'warehouse',
+        key: 'warehouse',
+        title: t('tracker.stageWarehouse') || 'Warehouse',
+        subtitle: t('tracker.stageWarehouseDesc') || 'Origin fulfillment & processing facility',
+        icon: Warehouse,
         stepNumber: 1,
+        shortCode: 'WH',
         location: `${currentShipment.shipper.city}, ${currentShipment.shipper.state}`,
+        facility: currentShipment.shipper.name,
         dateStr: formatDate(currentShipment.createdAt, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
       },
       {
         id: 'in_transit',
+        key: 'in_transit',
         title: t('tracker.stageInTransit'),
         subtitle: t('tracker.stageInTransitDesc'),
         icon: Truck,
         stepNumber: 2,
-        location: currentCheckpoint ? `${currentCheckpoint.city}, ${currentCheckpoint.state}` : 'Transit Hub',
+        shortCode: 'TR',
+        location: currentCheckpoint ? `${currentCheckpoint.city}, ${currentCheckpoint.state}` : 'Logistics Hub',
+        facility: currentCheckpoint?.facilityName || 'Intermodal Freight Network',
         dateStr: currentCheckpoint ? formatDate(currentCheckpoint.timestamp, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : undefined,
       },
       {
         id: 'out_for_delivery',
+        key: 'out_for_delivery',
         title: t('tracker.stageOutForDelivery'),
         subtitle: t('tracker.stageOutForDeliveryDesc'),
         icon: Compass,
         stepNumber: 3,
-        location: `${currentShipment.recipient.city} Courier Station`,
+        shortCode: 'OD',
+        location: `${currentShipment.recipient.city} Distribution Center`,
+        facility: `${currentShipment.carrier.toUpperCase()} Courier Unit`,
         dateStr: currentShipment.rates.deliveryTimeWindow,
       },
       {
         id: 'delivered',
+        key: 'delivered',
         title: t('tracker.stageDelivered'),
         subtitle: t('tracker.stageDeliveredDesc'),
         icon: CheckCircle2,
         stepNumber: 4,
+        shortCode: 'DL',
         location: `${currentShipment.recipient.city}, ${currentShipment.recipient.state}`,
+        facility: currentShipment.recipient.name,
         dateStr: status === 'delivered'
           ? formatDate(currentShipment.estimatedDelivery, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
           : `Target: ${formatDate(currentShipment.estimatedDelivery, { month: 'short', day: 'numeric' })}`,
@@ -427,13 +453,16 @@ export const PackageTracker: React.FC<PackageTrackerProps> = ({
     if (status === 'delivered') {
       progressPercent = 100;
     } else if (status === 'out_for_delivery') {
-      progressPercent = 75;
+      progressPercent = 82;
     } else if (status === 'in_transit' || status === 'customs_cleared' || isException) {
-      progressPercent = 45;
+      const cpRatio = currentShipment.checkpoints.length > 1
+        ? (currentShipment.currentCheckpointIndex + 1) / currentShipment.checkpoints.length
+        : 0.5;
+      progressPercent = Math.round(30 + cpRatio * 42); // 35% to 72%
     } else if (status === 'picked_up') {
       progressPercent = 25;
     } else if (status === 'label_created') {
-      progressPercent = 12;
+      progressPercent = 14;
     }
 
     return {
@@ -444,6 +473,94 @@ export const PackageTracker: React.FC<PackageTrackerProps> = ({
       progressPercent,
     };
   }, [currentShipment, currentCheckpoint, t, formatDate]);
+
+  // Historical status updates enriched with location metadata, durations, and facility classifications
+  const enrichedCheckpoints = useMemo(() => {
+    const cps = currentShipment.checkpoints;
+    const total = cps.length;
+
+    return cps.map((cp, idx) => {
+      const isPast = idx <= currentShipment.currentCheckpointIndex;
+      const isCurrent = idx === currentShipment.currentCheckpointIndex;
+      const isUpcoming = idx > currentShipment.currentCheckpointIndex;
+      const hubMeta = getHubClassification(cp, idx, total);
+
+      // Duration from previous stop
+      let durationFromPrev = '';
+      if (idx > 0) {
+        const prevTime = new Date(cps[idx - 1].timestamp).getTime();
+        const thisTime = new Date(cp.timestamp).getTime();
+        const diffMs = Math.max(0, thisTime - prevTime);
+        const hours = Math.floor(diffMs / (1000 * 60 * 60));
+        const mins = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+        durationFromPrev = hours > 0 ? `+${hours}h ${mins}m` : `+${mins}m`;
+      }
+
+      // Elapsed time from origin
+      const originTime = new Date(cps[0].timestamp).getTime();
+      const thisTime = new Date(cp.timestamp).getTime();
+      const elapsedTotalMs = Math.max(0, thisTime - originTime);
+      const elapsedHours = Math.floor(elapsedTotalMs / (1000 * 60 * 60));
+      const elapsedMins = Math.floor((elapsedTotalMs % (1000 * 60 * 60)) / (1000 * 60));
+      const totalElapsedStr = `${elapsedHours}h ${elapsedMins}m from origin`;
+
+      // Event Classification and Scan Code
+      let eventCode = 'TRANSIT_SORT_SCAN';
+      let eventLabel = 'Logistics Hub Scan';
+      if (idx === 0) {
+        eventCode = 'ORIGIN_DISPATCH_SCAN';
+        eventLabel = 'Origin Manifest & Pickup';
+      } else if (idx === total - 1) {
+        eventCode = 'CONSIGNEE_DELIVERY_POD';
+        eventLabel = 'Consignee Handover & POD';
+      } else if (cp.status === 'out_for_delivery') {
+        eventCode = 'OUT_FOR_DELIVERY_DISPATCH';
+        eventLabel = 'Final-Mile Courier Dispatch';
+      } else if (hubMeta.category === 'air_cargo') {
+        eventCode = 'AIR_CARGO_SORT_SCAN';
+        eventLabel = 'Air Freight Transfer';
+      } else if (hubMeta.category === 'customs') {
+        eventCode = 'CUSTOMS_CLEARANCE_RELEASE';
+        eventLabel = 'Customs Inspection Release';
+      } else if (hubMeta.category === 'intermodal_rail') {
+        eventCode = 'INTERMODAL_RAIL_EXCHANGE';
+        eventLabel = 'Rail Intermodal Exchange';
+      } else if (hubMeta.category === 'final_depot') {
+        eventCode = 'LOCAL_DEPOT_INBOUND';
+        eventLabel = 'Local Station Inbound Scan';
+      }
+
+      return {
+        ...cp,
+        originalIndex: idx,
+        isPast,
+        isCurrent,
+        isUpcoming,
+        hubMeta,
+        durationFromPrev,
+        totalElapsedStr,
+        eventCode,
+        eventLabel,
+      };
+    });
+  }, [currentShipment.checkpoints, currentShipment.currentCheckpointIndex]);
+
+  // Filtered and sorted checkpoints according to user controls
+  const displayedCheckpoints = useMemo(() => {
+    let list = [...enrichedCheckpoints];
+
+    if (timelineFilter === 'completed') {
+      list = list.filter(cp => cp.isPast);
+    } else if (timelineFilter === 'active') {
+      list = list.filter(cp => cp.isCurrent);
+    }
+
+    if (timelineSortOrder === 'newest') {
+      list.reverse();
+    }
+
+    return list;
+  }, [enrichedCheckpoints, timelineFilter, timelineSortOrder]);
 
   const [weather, setWeather] = useState<WeatherData | null>(() => 
     generateSimulatedWeather(currentLat, currentLng, currentLocationName)
@@ -481,20 +598,52 @@ export const PackageTracker: React.FC<PackageTrackerProps> = ({
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     setSearchError('');
-    const clean = searchQuery.trim().toUpperCase();
+    const raw = searchQuery.trim();
+    const clean = raw.toUpperCase();
     if (!clean) return;
 
+    // 1. Check existing shipments in registry
     const found = allShipments.find(s => 
       s.trackingNumber.toUpperCase() === clean ||
       s.referenceNumber.toUpperCase() === clean ||
-      s.trackingNumber.replace(/[^A-Z0-9]/g, '').includes(clean.replace(/[^A-Z0-9]/g, ''))
+      (s.telemetry?.vehicleId && s.telemetry.vehicleId.toUpperCase() === clean) ||
+      (s.telemetry?.vehicleId && s.telemetry.vehicleId.toUpperCase().includes(clean)) ||
+      (clean.includes('774') || clean.includes('AERO') || clean.includes('938102941') ? s.id === 'shp-002' : false) ||
+      (clean.includes('884') || clean.includes('TRUCK') ? s.id === 'shp-001' : false) ||
+      s.trackingNumber.replace(/[^A-Z0-9]/g, '').includes(clean.replace(/[^A-Z0-9]/g, '')) ||
+      s.shipper.city.toUpperCase().includes(clean) ||
+      s.recipient.city.toUpperCase().includes(clean)
     );
 
     if (found) {
       onSelectShipment(found);
-    } else {
-      setSearchError(t('tracker.notFound', { query: searchQuery }));
+      return;
     }
+
+    // 2. Check if user typed a worldwide route like "Nairobi to London" or "Tokyo -> Frankfurt"
+    const routeSplit = raw.split(/\s+(?:to|->|—|-)\s+/i);
+    if (routeSplit.length >= 2 && routeSplit[0].trim() && routeSplit[1].trim()) {
+      const origin = routeSplit[0].trim();
+      const dest = routeSplit[1].trim();
+      const newShipment = createWorldwideShipment({
+        originQuery: origin,
+        destQuery: dest,
+      });
+      onSelectShipment(newShipment);
+      return;
+    }
+
+    // 3. Check if user typed an international location name
+    if (raw.length >= 3) {
+      const newShipment = createWorldwideShipment({
+        originQuery: raw,
+        destQuery: 'London, United Kingdom',
+      });
+      onSelectShipment(newShipment);
+      return;
+    }
+
+    setSearchError(t('tracker.notFound', { query: searchQuery }));
   };
 
   const handleCheckpointAdvance = (nextIdx: number) => {
@@ -522,13 +671,13 @@ export const PackageTracker: React.FC<PackageTrackerProps> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={t('tracker.inputPlaceholder')}
+              placeholder="Enter Tracking #, Vehicle/Plane Reg #, or Global Route (e.g. 'Nairobi to London', 'AERO-CARGO-774', 'VG-901482093-GL')..."
               className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:bg-white transition-all font-mono"
             />
           </div>
           <button
             type="submit"
-            className="px-6 py-3 bg-slate-900 hover:bg-slate-800 text-white font-medium text-sm rounded-lg transition-colors whitespace-nowrap shrink-0 shadow-xs"
+            className="px-6 py-3 bg-slate-900 hover:bg-slate-800 text-white font-medium text-sm rounded-lg transition-colors whitespace-nowrap shrink-0 shadow-xs cursor-pointer"
           >
             {t('tracker.searchTitle')}
           </button>
@@ -543,20 +692,25 @@ export const PackageTracker: React.FC<PackageTrackerProps> = ({
 
         {/* Quick test pills */}
         <div className="mt-4 pt-3 border-t border-slate-100 flex flex-wrap items-center gap-2 text-xs">
-          <span className="text-slate-500 font-medium">{t('tracker.activeShipments')}</span>
-          {allShipments.slice(0, 4).map((s) => (
-            <button
-              key={s.id}
-              onClick={() => onSelectShipment(s)}
-              className={`px-2.5 py-1 rounded-md text-xs font-mono transition-colors border ${
-                currentShipment.trackingNumber === s.trackingNumber
-                  ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold'
-                  : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
-              }`}
-            >
-              {s.trackingNumber} ({tStatus(s.status)})
-            </button>
-          ))}
+          <span className="text-slate-500 font-medium">Quick Select Unit:</span>
+          {allShipments.slice(0, 4).map((s) => {
+            const isAircraft = s.telemetry?.vehicleType === 'cargo_aircraft';
+            const vLabel = s.telemetry?.vehicleId || (isAircraft ? 'AERO-CARGO-774' : 'VG-TRUCK-884');
+            return (
+              <button
+                key={s.id}
+                onClick={() => onSelectShipment(s)}
+                className={`px-2.5 py-1 rounded-md text-xs font-mono transition-colors border flex items-center gap-1.5 cursor-pointer ${
+                  currentShipment.trackingNumber === s.trackingNumber
+                    ? 'bg-blue-50 text-blue-700 border-blue-200 font-bold'
+                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                {isAircraft ? <Plane className="w-3 h-3 text-cyan-600" /> : <Truck className="w-3 h-3 text-blue-600" />}
+                <span>{vLabel} · {s.trackingNumber}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -630,6 +784,17 @@ export const PackageTracker: React.FC<PackageTrackerProps> = ({
                   <span className="hidden sm:inline">{t('tracker.printSummary')}</span>
                 </button>
 
+                {/* Print Receipt Button */}
+                <button
+                  type="button"
+                  onClick={() => setShowReceiptModal(true)}
+                  className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold rounded-lg border border-emerald-300 shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                  title="Print Shipping Receipt & Tax Invoice"
+                >
+                  <Receipt className="w-3.5 h-3.5 text-emerald-600" />
+                  <span className="hidden sm:inline">Receipt</span>
+                </button>
+
                 <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-semibold uppercase tracking-wider">
                   <span className={`w-2 h-2 rounded-full ${currentShipment.status === 'delivered' ? 'bg-emerald-500' : 'bg-blue-600 animate-pulse'}`} />
                   <span>{tStatus(currentShipment.status)}</span>
@@ -650,9 +815,10 @@ export const PackageTracker: React.FC<PackageTrackerProps> = ({
           </div>
         </div>
 
-        {/* Visual Shipping Stage Progress Bar */}
+        {/* Visual Linear Progress Bar: Shipment Status Stages */}
         <div className="p-6 border-b border-slate-100 bg-gradient-to-b from-slate-50/80 via-white to-white">
-          <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+          {/* Header Row: Title, Stage Badge, and Live Status */}
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
             <div className="flex items-center gap-2.5">
               <div className="p-2 bg-blue-50 text-blue-700 rounded-lg border border-blue-200 shadow-2xs">
                 <Activity className="w-4 h-4 text-blue-600" />
@@ -660,7 +826,7 @@ export const PackageTracker: React.FC<PackageTrackerProps> = ({
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider font-mono">
-                    {t('tracker.stagesTitle')}
+                    {t('tracker.linearProgressBarTitle') || 'Shipment Stage Linear Progress'}
                   </h3>
                   <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase font-mono ${
                     shippingStages.isDelivered
@@ -680,12 +846,21 @@ export const PackageTracker: React.FC<PackageTrackerProps> = ({
                     ? t('tracker.deliveredCompleted')
                     : shippingStages.isException
                     ? t('tracker.stageException')
-                    : shippingStages.stages[shippingStages.activeIndex].subtitle}
+                    : `${shippingStages.stages[shippingStages.activeIndex].title}: ${shippingStages.stages[shippingStages.activeIndex].subtitle}`}
                 </p>
               </div>
             </div>
 
             <div className="flex items-center gap-2">
+              <div className="text-right hidden sm:block">
+                <span className="text-[10px] uppercase font-bold text-slate-400 block font-mono">
+                  STAGE COMPLETION
+                </span>
+                <span className="text-base font-extrabold font-mono text-blue-600">
+                  {shippingStages.progressPercent}%
+                </span>
+              </div>
+              <div className="h-8 w-px bg-slate-200 mx-1 hidden sm:block" />
               <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold tracking-wide shadow-2xs ${
                 shippingStages.isDelivered
                   ? 'bg-emerald-600 text-white'
@@ -707,91 +882,196 @@ export const PackageTracker: React.FC<PackageTrackerProps> = ({
             </div>
           </div>
 
-          {/* Stepper Progress Bar Track */}
-          <div className="relative pt-2 pb-2 px-1 sm:px-6">
-            {/* Background connecting bar across nodes */}
-            <div className="absolute top-7 left-8 right-8 sm:left-14 sm:right-14 h-1.5 bg-slate-200 rounded-full z-0 overflow-hidden">
-              <div
-                className={`h-full transition-all duration-700 ease-out rounded-full ${
-                  shippingStages.isDelivered
-                    ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600'
-                    : shippingStages.isException
-                    ? 'bg-gradient-to-r from-blue-600 to-amber-500'
-                    : 'bg-gradient-to-r from-blue-600 via-indigo-600 to-emerald-500'
-                }`}
-                style={{ width: `${shippingStages.progressPercent}%` }}
-              />
-            </div>
-
-            {/* 4 Stage Nodes */}
-            <div className="grid grid-cols-4 relative z-10">
+          {/* DEDICATED VISUAL LINEAR PROGRESS BAR CONTAINER */}
+          <div className="bg-slate-50 border border-slate-200/90 rounded-xl p-4 sm:p-5 shadow-2xs">
+            {/* 4 Linear Stage Header Segment Labels */}
+            <div className="grid grid-cols-4 gap-1 sm:gap-2 mb-2 text-center">
               {shippingStages.stages.map((stage, idx) => {
                 const isCompleted = idx < shippingStages.activeIndex || shippingStages.isDelivered;
                 const isActive = idx === shippingStages.activeIndex && !shippingStages.isDelivered;
-                const StageIcon = stage.icon;
-
                 return (
-                  <div key={stage.id} className="flex flex-col items-center text-center px-1">
-                    {/* Node circle */}
-                    <div
-                      className={`w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center font-bold text-xs transition-all duration-300 relative ${
+                  <div key={stage.id} className="flex flex-col items-center">
+                    <div className="flex items-center gap-1.5 text-xs font-bold font-mono">
+                      <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] ${
                         isCompleted
-                          ? 'bg-emerald-600 text-white ring-4 ring-emerald-50 shadow-md shadow-emerald-200'
+                          ? 'bg-emerald-600 text-white'
                           : isActive
-                          ? 'bg-blue-600 text-white ring-4 ring-blue-100 shadow-md shadow-blue-200'
-                          : 'bg-white border-2 border-slate-300 text-slate-400 shadow-2xs'
-                      }`}
-                    >
-                      {isCompleted ? (
-                        <Check className="w-5 h-5 stroke-[2.5]" />
-                      ) : (
-                        <StageIcon className="w-4 h-4 sm:w-5 sm:h-5" />
-                      )}
-
-                      {/* Small Active Badge Pin */}
-                      {isActive && (
-                        <span className="absolute -top-2 px-1.5 py-0.2 bg-blue-900 text-white rounded text-[8px] font-black uppercase tracking-wider font-mono shadow-xs">
-                          NOW
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Stage Labels */}
-                    <div className="mt-3 space-y-0.5">
-                      <div className={`text-xs font-bold leading-tight ${
+                          ? 'bg-blue-600 text-white ring-2 ring-blue-300'
+                          : 'bg-slate-200 text-slate-600'
+                      }`}>
+                        {isCompleted ? '✓' : idx + 1}
+                      </span>
+                      <span className={`truncate text-xs ${
                         isActive
                           ? 'text-blue-900 font-extrabold'
                           : isCompleted
-                          ? 'text-slate-900'
+                          ? 'text-slate-800'
                           : 'text-slate-400'
                       }`}>
                         {stage.title}
-                      </div>
-
-                      <div className={`text-[10px] hidden md:block leading-tight ${
-                        isActive
-                          ? 'text-blue-700 font-semibold'
-                          : isCompleted
-                          ? 'text-slate-600'
-                          : 'text-slate-400'
-                      }`}>
-                        {stage.subtitle}
-                      </div>
-
-                      <div className="text-[10px] text-slate-500 font-mono pt-0.5 truncate max-w-[85px] sm:max-w-[130px]">
-                        {stage.location}
-                      </div>
-
-                      {stage.dateStr && (
-                        <div className="text-[9px] text-slate-400 font-mono hidden sm:block">
-                          {stage.dateStr}
-                        </div>
-                      )}
+                      </span>
                     </div>
+                    <span className="text-[10px] hidden md:inline font-mono text-slate-500 mt-0.5">
+                      {idx === 0 ? '0-25%' : idx === 1 ? '25-50%' : idx === 2 ? '50-75%' : '75-100%'}
+                    </span>
                   </div>
                 );
               })}
             </div>
+
+            {/* Continuous Linear Bar Track with Segment Divider Ticks & Pinpoint Vehicle Thumb */}
+            <div className="relative py-3">
+              {/* Outer Track with 4 Segments */}
+              <div className="h-4 sm:h-5 w-full bg-slate-200/80 rounded-full overflow-hidden border border-slate-300/80 relative shadow-inner">
+                {/* Visual Tick Mark Dividers at 25%, 50%, 75% */}
+                <div className="absolute top-0 bottom-0 left-1/4 w-0.5 bg-white/70 z-10" />
+                <div className="absolute top-0 bottom-0 left-2/4 w-0.5 bg-white/70 z-10" />
+                <div className="absolute top-0 bottom-0 left-3/4 w-0.5 bg-white/70 z-10" />
+
+                {/* Animated Linear Gradient Fill */}
+                <div
+                  className={`h-full transition-all duration-700 ease-out rounded-full relative ${
+                    shippingStages.isDelivered
+                      ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600'
+                      : shippingStages.isException
+                      ? 'bg-gradient-to-r from-blue-600 via-amber-500 to-rose-500'
+                      : 'bg-gradient-to-r from-blue-600 via-indigo-600 to-emerald-500'
+                  }`}
+                  style={{ width: `${shippingStages.progressPercent}%` }}
+                >
+                  {/* Subtle Shimmer Overlay */}
+                  <div className="absolute inset-0 bg-white/20 opacity-40 animate-pulse" />
+                </div>
+              </div>
+
+              {/* Moving Linear Stage Indicator Thumb with Vehicle Radar Pulse */}
+              <div
+                className="absolute top-1/2 -translate-y-1/2 -ml-4 sm:-ml-5 transition-all duration-700 z-20 pointer-events-none"
+                style={{ left: `${Math.min(97, Math.max(3, shippingStages.progressPercent))}%` }}
+              >
+                {/* Floating percentage tooltip badge */}
+                <div className="absolute -top-7 left-1/2 -translate-x-1/2 px-1.5 py-0.5 bg-slate-900 text-cyan-300 font-mono text-[9px] font-black rounded-sm shadow-xs border border-cyan-500/50 whitespace-nowrap flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />
+                  <span>{shippingStages.progressPercent}%</span>
+                </div>
+
+                {/* Circular Thumb with Radar Wave */}
+                <div className="relative">
+                  {!shippingStages.isDelivered && (
+                    <div className="absolute -inset-1.5 rounded-full bg-blue-500/30 animate-ping" />
+                  )}
+                  <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-white shadow-md border-2 border-blue-600 flex items-center justify-center text-blue-600">
+                    {shippingStages.isDelivered ? (
+                      <Check className="w-4 h-4 text-emerald-600 stroke-[3]" />
+                    ) : (
+                      <Truck className="w-4 h-4 text-blue-600" />
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Linear Stage Milestone Ticks */}
+            <div className="flex items-center justify-between text-[10px] font-mono text-slate-500 px-1 pt-0.5">
+              <span className="flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                <span>Warehouse Origin</span>
+              </span>
+              <span className="hidden sm:flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                <span>Linehaul Transit</span>
+              </span>
+              <span className="hidden sm:flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                <span>Out for Delivery</span>
+              </span>
+              <span className="flex items-center gap-1 text-right">
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                <span>Consignee Delivered</span>
+              </span>
+            </div>
+          </div>
+
+          {/* 4 STAGE MILESTONE DETAIL CARDS */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
+            {shippingStages.stages.map((stage, idx) => {
+              const isCompleted = idx < shippingStages.activeIndex || shippingStages.isDelivered;
+              const isActive = idx === shippingStages.activeIndex && !shippingStages.isDelivered;
+              const StageIcon = stage.icon;
+
+              return (
+                <div
+                  key={stage.id}
+                  className={`p-3.5 rounded-xl border transition-all ${
+                    isActive
+                      ? 'bg-blue-50/80 border-blue-400 ring-2 ring-blue-500/20 shadow-xs'
+                      : isCompleted
+                      ? 'bg-emerald-50/40 border-emerald-200'
+                      : 'bg-slate-50/60 border-slate-200 opacity-75'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className={`p-2 rounded-lg ${
+                        isCompleted
+                          ? 'bg-emerald-600 text-white'
+                          : isActive
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-white border border-slate-300 text-slate-400'
+                      }`}>
+                        {isCompleted ? (
+                          <Check className="w-4 h-4 stroke-[2.5]" />
+                        ) : (
+                          <StageIcon className="w-4 h-4" />
+                        )}
+                      </div>
+                      <div>
+                        <span className="text-[10px] font-bold font-mono uppercase text-slate-400 block">
+                          STAGE 0{idx + 1}
+                        </span>
+                        <h4 className={`text-xs font-bold leading-tight ${
+                          isActive ? 'text-blue-900 font-extrabold' : isCompleted ? 'text-slate-900' : 'text-slate-600'
+                        }`}>
+                          {stage.title}
+                        </h4>
+                      </div>
+                    </div>
+
+                    {isCompleted ? (
+                      <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold font-mono bg-emerald-100 text-emerald-800 border border-emerald-200">
+                        COMPLETED
+                      </span>
+                    ) : isActive ? (
+                      <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold font-mono bg-blue-100 text-blue-800 border border-blue-200 flex items-center gap-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse" />
+                        ACTIVE
+                      </span>
+                    ) : (
+                      <span className="px-1.5 py-0.5 rounded text-[9.5px] font-mono text-slate-400 bg-white border border-slate-200">
+                        UPCOMING
+                      </span>
+                    )}
+                  </div>
+
+                  <p className="text-[11px] text-slate-600 line-clamp-1 mb-2">
+                    {stage.subtitle}
+                  </p>
+
+                  <div className="text-[10.5px] font-mono bg-white/80 p-2 rounded-lg border border-slate-200/80 space-y-1">
+                    <div className="flex items-center justify-between text-slate-700">
+                      <span className="text-slate-400">Location:</span>
+                      <strong className="truncate max-w-[120px]">{stage.location}</strong>
+                    </div>
+                    {stage.dateStr && (
+                      <div className="flex items-center justify-between text-slate-700">
+                        <span className="text-slate-400">Time/Target:</span>
+                        <span className="font-semibold text-slate-800">{stage.dateStr}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -943,6 +1223,50 @@ export const PackageTracker: React.FC<PackageTrackerProps> = ({
           </div>
         </div>
 
+        {/* Live Vector Telematics Leaflet Map (Hero Component) */}
+        <div className="p-6 border-b border-slate-100 bg-white">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <MapPin className="w-4 h-4 text-blue-600" />
+              <span>{t('tracker.mapTitle')}</span>
+            </h2>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowPrintSummaryModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg shadow-2xs transition-colors cursor-pointer"
+                title={t('tracker.printSummaryDesc')}
+              >
+                <Printer className="w-3.5 h-3.5 text-blue-600" />
+                <span>{t('tracker.printSummary')}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowReceiptModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg shadow-2xs transition-colors cursor-pointer"
+                title="Print Official Shipping Receipt & Tax Invoice"
+              >
+                <Receipt className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Receipt</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowLabelModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>{t('tracker.printLabel')}</span>
+              </button>
+            </div>
+          </div>
+          <TrackingMap
+            shipment={currentShipment}
+            onCheckpointChange={handleCheckpointAdvance}
+            allShipments={allShipments}
+            onSelectShipment={onSelectShipment}
+          />
+        </div>
+
         {/* Package Physical Specifications & Unit Toggle Strip */}
         <div className="px-6 py-4 bg-slate-50/80 border-b border-slate-100">
           <div className="flex flex-wrap items-center justify-between gap-4">
@@ -1035,39 +1359,6 @@ export const PackageTracker: React.FC<PackageTrackerProps> = ({
               </div>
             </div>
           </div>
-        </div>
-
-        {/* Live Vector Telematics Map */}
-        <div className="p-6">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-              <MapPin className="w-4 h-4 text-blue-600" />
-              <span>{t('tracker.mapTitle')}</span>
-            </h2>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setShowPrintSummaryModal(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg shadow-2xs transition-colors cursor-pointer"
-                title={t('tracker.printSummaryDesc')}
-              >
-                <Printer className="w-3.5 h-3.5 text-blue-600" />
-                <span>{t('tracker.printSummary')}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowLabelModal(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
-              >
-                <FileText className="w-3.5 h-3.5" />
-                <span>{t('tracker.printLabel')}</span>
-              </button>
-            </div>
-          </div>
-          <TrackingMap
-            shipment={currentShipment}
-            onCheckpointChange={handleCheckpointAdvance}
-          />
         </div>
 
         {/* Weather Forecast & Atmospheric Conditions Indicator */}
@@ -1392,76 +1683,386 @@ export const PackageTracker: React.FC<PackageTrackerProps> = ({
                 </div>
               </div>
 
-              {/* Digital Signature rendering */}
-              <div className="bg-white px-3 py-2 border border-emerald-300 rounded-lg flex flex-col items-center">
-                <span className="text-[9px] uppercase font-bold text-slate-400">{t('tracker.signature')}</span>
-                <svg width="120" height="35" viewBox="0 0 200 60" className="stroke-slate-900 fill-none stroke-2">
-                  <path d={currentShipment.proofOfDelivery.signatureSvg} />
-                </svg>
+              {/* Digital Signature rendering & Print POD */}
+              <div className="flex items-center gap-3">
+                <div className="bg-white px-3 py-2 border border-emerald-300 rounded-lg flex flex-col items-center">
+                  <span className="text-[9px] uppercase font-bold text-slate-400">{t('tracker.signature')}</span>
+                  <svg width="120" height="35" viewBox="0 0 200 60" className="stroke-slate-900 fill-none stroke-2">
+                    <path d={currentShipment.proofOfDelivery.signatureSvg} />
+                  </svg>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPrintSummaryModal(true)}
+                  className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-2xs transition-colors cursor-pointer"
+                  title="Print Official Proof of Delivery (e-POD) Certificate"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Print e-POD Slip</span>
+                </button>
               </div>
             </div>
           </div>
         )}
 
-        {/* Milestone Checkpoint Timeline */}
-        <div className="p-6 border-t border-slate-100 bg-slate-50/50">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-            <h3 className="text-sm font-bold text-slate-900">{t('tracker.timelineTitle')}</h3>
+        {/* Detailed Vertical Timeline of Historical Status Updates */}
+        <div className="p-6 border-t border-slate-100 bg-slate-50/60">
+          {/* Header Bar with Filters, Sort Order, and Document Print Button */}
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
             <div className="flex items-center gap-2.5">
+              <div className="p-2 bg-blue-50 text-blue-700 rounded-lg border border-blue-200 shadow-2xs">
+                <Clock className="w-4 h-4 text-blue-600" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider font-mono">
+                    {t('tracker.timelineDetailedTitle')}
+                  </h3>
+                  <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase font-mono bg-blue-100 text-blue-800 border border-blue-200">
+                    {enrichedCheckpoints.length} SCANS LOGGED
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  {t('tracker.timelineSubtitle')}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Filter Tabs */}
+              <div className="inline-flex p-1 bg-white rounded-lg border border-slate-200 text-xs font-mono shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() => setTimelineFilter('all')}
+                  className={`px-2.5 py-1 rounded transition-colors font-semibold ${
+                    timelineFilter === 'all'
+                      ? 'bg-slate-900 text-white font-bold shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {t('tracker.filterAll')} ({enrichedCheckpoints.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTimelineFilter('completed')}
+                  className={`px-2.5 py-1 rounded transition-colors font-semibold ${
+                    timelineFilter === 'completed'
+                      ? 'bg-slate-900 text-white font-bold shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {t('tracker.filterCompleted')} ({enrichedCheckpoints.filter(c => c.isPast).length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTimelineFilter('active')}
+                  className={`px-2.5 py-1 rounded transition-colors font-semibold ${
+                    timelineFilter === 'active'
+                      ? 'bg-slate-900 text-white font-bold shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {t('tracker.filterActive')} (1)
+                </button>
+              </div>
+
+              {/* Sort Order Toggle */}
+              <button
+                type="button"
+                onClick={() => setTimelineSortOrder(prev => prev === 'newest' ? 'oldest' : 'newest')}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold font-mono shadow-2xs transition-colors cursor-pointer"
+                title="Toggle between Newest First and Oldest First sort order"
+              >
+                <ArrowUpDown className="w-3.5 h-3.5 text-blue-600" />
+                <span>{timelineSortOrder === 'newest' ? t('tracker.sortNewest') : t('tracker.sortOldest')}</span>
+              </button>
+
+              {/* Print Summary Button */}
               <button
                 type="button"
                 onClick={() => setShowPrintSummaryModal(true)}
-                className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg shadow-2xs transition-colors cursor-pointer"
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg shadow-2xs transition-colors cursor-pointer"
                 title={t('tracker.printSummaryDesc')}
               >
                 <Printer className="w-3.5 h-3.5 text-blue-600" />
-                <span>{t('tracker.printSummary')}</span>
+                <span className="hidden sm:inline">{t('tracker.printSummary')}</span>
               </button>
-              <span className="text-xs text-slate-500 font-mono">
-                Checkpoint {currentShipment.currentCheckpointIndex + 1} / {currentShipment.checkpoints.length}
-              </span>
+
+              {/* Print Receipt Button */}
+              <button
+                type="button"
+                onClick={() => setShowReceiptModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:text-emerald-950 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg shadow-2xs transition-colors cursor-pointer"
+                title="Print Official Shipping Receipt & Tax Invoice"
+              >
+                <Receipt className="w-3.5 h-3.5 text-emerald-600" />
+                <span className="hidden sm:inline">Receipt</span>
+              </button>
             </div>
           </div>
 
-          <div className="space-y-4 relative before:absolute before:left-3.5 before:top-3 before:bottom-3 before:w-0.5 before:bg-slate-200">
-            {currentShipment.checkpoints.map((cp, idx) => {
-              const isPast = idx <= currentShipment.currentCheckpointIndex;
-              const isCurrent = idx === currentShipment.currentCheckpointIndex;
+          {/* Key Summary Strip */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-6 p-3 bg-white rounded-xl border border-slate-200 text-xs shadow-2xs">
+            <div>
+              <span className="text-[10px] font-bold uppercase text-slate-400 font-mono block">ORIGIN DISPATCH</span>
+              <span className="font-bold text-slate-900 text-xs truncate block">{currentShipment.shipper.city}, {currentShipment.shipper.state}</span>
+              <span className="text-[10px] text-slate-500 font-mono">{formatDate(currentShipment.createdAt, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+            </div>
+            <div>
+              <span className="text-[10px] font-bold uppercase text-blue-500 font-mono block">LATEST ACTIVE SCAN</span>
+              <span className="font-bold text-blue-950 text-xs truncate block">{currentCheckpoint?.city || currentCheckpoint?.location}, {currentCheckpoint?.state}</span>
+              <span className="text-[10px] text-blue-600 font-mono font-semibold">{currentCheckpoint ? formatDate(currentCheckpoint.timestamp, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}</span>
+            </div>
+            <div>
+              <span className="text-[10px] font-bold uppercase text-slate-400 font-mono block">ACTIVE CUSTODY FIX</span>
+              <span className="font-bold text-slate-900 text-xs font-mono block">{currentLat.toFixed(4)}° N, {Math.abs(currentLng).toFixed(4)}° W</span>
+              <span className="text-[10px] text-emerald-600 font-mono font-semibold">GPS LOCK VERIFIED</span>
+            </div>
+            <div>
+              <span className="text-[10px] font-bold uppercase text-slate-400 font-mono block">CONSIGNEE TARGET</span>
+              <span className="font-bold text-slate-900 text-xs truncate block">{currentShipment.recipient.city}, {currentShipment.recipient.state}</span>
+              <span className="text-[10px] text-slate-500 font-mono truncate block">{currentShipment.rates.deliveryTimeWindow}</span>
+            </div>
+          </div>
+
+          {/* Detailed Vertical Timeline Spine & Cards */}
+          <div className="relative pl-2 sm:pl-4 space-y-6 before:absolute before:left-6 sm:before:left-8 before:top-4 before:bottom-4 before:w-0.5 before:bg-slate-200">
+            {displayedCheckpoints.map((cp) => {
+              const isDeliveredCheckpoint = cp.status === 'delivered';
 
               return (
-                <div key={cp.id} className="relative flex items-start gap-4 pl-1">
-                  {/* Circle Indicator */}
-                  <div
-                    className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 z-10 text-xs font-bold transition-all ${
-                      isCurrent
-                        ? 'bg-blue-600 text-white ring-4 ring-blue-100'
-                        : isPast
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-white border-2 border-slate-300 text-slate-400'
-                    }`}
-                  >
-                    {isPast ? '✓' : idx + 1}
+                <div key={cp.id} className="relative flex items-start gap-3.5 sm:gap-4 pl-1">
+                  {/* Vertical Spine Node Icon */}
+                  <div className="relative shrink-0 z-10">
+                    {cp.isCurrent && (
+                      <div className="absolute -inset-1.5 rounded-full bg-blue-500/30 animate-ping" />
+                    )}
+                    <div
+                      className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-bold text-xs transition-all ${
+                        cp.isCurrent
+                          ? 'bg-blue-600 text-white ring-4 ring-blue-100 shadow-md shadow-blue-300'
+                          : cp.isPast
+                          ? 'bg-emerald-600 text-white ring-2 ring-emerald-100 shadow-2xs'
+                          : 'bg-white border-2 border-slate-300 text-slate-400'
+                      }`}
+                    >
+                      {cp.isCurrent ? (
+                        <Radio className="w-4 h-4 text-white animate-pulse" />
+                      ) : cp.isPast ? (
+                        <Check className="w-4 h-4 text-white stroke-[2.5]" />
+                      ) : (
+                        <span className="text-xs font-mono font-bold text-slate-400">{cp.originalIndex + 1}</span>
+                      )}
+                    </div>
                   </div>
 
-                  {/* Checkpoint Content */}
-                  <div className="flex-1 bg-white p-3.5 rounded-lg border border-slate-200 shadow-2xs">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="font-bold text-sm text-slate-900">{cp.location}</span>
-                      <span className="text-xs font-mono text-slate-500">
-                        {formatDateTime(cp.timestamp, {
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </span>
+                  {/* Detailed Historical Event Card */}
+                  <div
+                    className={`flex-1 rounded-xl p-4 sm:p-5 border transition-all ${
+                      cp.isCurrent
+                        ? 'bg-white border-blue-400 ring-2 ring-blue-500/20 shadow-md'
+                        : cp.isPast
+                        ? 'bg-white border-slate-200/90 shadow-2xs hover:border-slate-300'
+                        : 'bg-slate-50/70 border-slate-200/70 opacity-80'
+                    }`}
+                  >
+                    {/* Top Row: Event Badges, Sequence, Hub Classification */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pb-3 mb-3 border-b border-slate-100">
+                      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                        {/* Status Badge */}
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase font-mono tracking-wider ${
+                          cp.status === 'delivered'
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                            : cp.status === 'out_for_delivery'
+                            ? 'bg-indigo-100 text-indigo-800 border border-indigo-200'
+                            : cp.status === 'exception'
+                            ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                            : cp.status === 'picked_up' || cp.status === 'label_created'
+                            ? 'bg-teal-100 text-teal-800 border border-teal-200'
+                            : 'bg-blue-100 text-blue-800 border border-blue-200'
+                        }`}>
+                          {tStatus(cp.status)}
+                        </span>
+
+                        {/* Scan Event Code Pill */}
+                        <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-100 text-slate-700 border border-slate-200 flex items-center gap-1">
+                          <Tag className="w-3 h-3 text-slate-400" />
+                          <span>{cp.eventCode}</span>
+                        </span>
+
+                        {/* Hub Taxonomy Badge */}
+                        <span
+                          className="px-2 py-0.5 rounded text-[10px] font-mono font-extrabold flex items-center gap-1 text-white shadow-2xs"
+                          style={{ backgroundColor: cp.hubMeta.badgeBg }}
+                          title={cp.hubMeta.label}
+                        >
+                          <span>{cp.hubMeta.iconSymbol}</span>
+                          <span>{cp.hubMeta.label.split(' ')[0]}</span>
+                        </span>
+
+                        {/* Checkpoint Sequence Index */}
+                        <span className="text-[10px] font-mono font-semibold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200/60 hidden sm:inline">
+                          STOP {cp.originalIndex + 1} OF {currentShipment.checkpoints.length}
+                        </span>
+                      </div>
+
+                      <div>
+                        {cp.isCurrent ? (
+                          <span className="px-2.5 py-1 rounded-full text-[10.5px] font-bold font-mono bg-blue-600 text-white flex items-center gap-1.5 shadow-xs">
+                            <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                            {t('tracker.latestScan')}
+                          </span>
+                        ) : cp.isPast ? (
+                          <span className="text-xs font-mono font-bold text-emerald-600 flex items-center gap-1">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>CLEARED</span>
+                          </span>
+                        ) : (
+                          <span className="text-xs font-mono text-slate-400">
+                            PLANNED CORRIDOR
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <p className="text-xs text-slate-600 mt-1">{cp.description}</p>
-                    <div className="mt-2 flex items-center gap-2 text-[11px] text-slate-500">
-                      <span className="font-medium text-slate-700">{cp.facilityName}</span>
-                      <span aria-hidden="true">·</span>
-                      <span className="capitalize">{tStatus(cp.status)}</span>
+
+                    {/* Operational Event Description */}
+                    <div className="mb-3.5">
+                      <h4 className="text-sm font-bold text-slate-900 mb-1 flex items-center gap-2">
+                        <span>{cp.eventLabel}</span>
+                        {cp.isCurrent && (
+                          <span className="text-[10px] font-mono font-bold px-1.5 py-0.2 bg-blue-50 text-blue-700 rounded border border-blue-200">
+                            ACTIVE
+                          </span>
+                        )}
+                      </h4>
+                      <p className="text-xs text-slate-600 leading-relaxed">
+                        {cp.description}
+                      </p>
                     </div>
+
+                    {/* Rich Location Metadata & Telemetry Box */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 p-3 bg-slate-50/90 rounded-lg border border-slate-200/80 text-xs mb-3">
+                      {/* Location & Facility Details */}
+                      <div className="space-y-1.5">
+                        <div className="flex items-start gap-1.5">
+                          <MapPin className="w-3.5 h-3.5 text-blue-600 shrink-0 mt-0.5" />
+                          <div>
+                            <span className="font-bold text-slate-900 block leading-tight">
+                              {cp.location}
+                            </span>
+                            <span className="text-[11px] text-slate-500 block">
+                              {cp.facilityName}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Coordinates Pill & Quick Actions */}
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                          <div className="inline-flex items-center gap-1 font-mono text-[11px] text-slate-700 bg-white px-2 py-0.5 rounded border border-slate-200">
+                            <Navigation className="w-3 h-3 text-cyan-600" />
+                            <span>{cp.lat.toFixed(4)}° N, {Math.abs(cp.lng).toFixed(4)}° W</span>
+                          </div>
+
+                          {/* Copy Coordinates Button */}
+                          <button
+                            type="button"
+                            onClick={() => handleCopyCoordinates(cp.id, cp.lat, cp.lng)}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 text-[10.5px] font-semibold text-slate-600 hover:text-slate-900 bg-white hover:bg-slate-100 border border-slate-200 rounded transition-colors cursor-pointer"
+                            title="Copy GPS coordinates"
+                          >
+                            <Copy className="w-3 h-3 text-slate-400" />
+                            <span>{copiedCoordId === cp.id ? 'Copied!' : 'Copy'}</span>
+                          </button>
+
+                          {/* Open in Maps External Link */}
+                          <a
+                            href={`https://www.google.com/maps?q=${cp.lat},${cp.lng}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 px-2 py-0.5 text-[10.5px] font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200/80 rounded transition-colors"
+                            title="View coordinates on Google Maps"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                            <span>{t('tracker.viewExternalMap')}</span>
+                          </a>
+                        </div>
+                      </div>
+
+                      {/* Timestamps & Route Duration Timing */}
+                      <div className="space-y-1.5 border-t md:border-t-0 md:border-l border-slate-200/80 md:pl-3 pt-2 md:pt-0">
+                        <div className="flex items-start gap-1.5">
+                          <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+                          <div>
+                            <span className="font-bold text-slate-800 font-mono text-[11.5px] block leading-tight">
+                              {formatDate(cp.timestamp, {
+                                weekday: 'short',
+                                month: 'short',
+                                day: 'numeric',
+                                year: 'numeric',
+                              })}
+                            </span>
+                            <span className="text-[11px] font-mono text-slate-600 flex items-center gap-1">
+                              <Clock className="w-3 h-3 text-slate-400" />
+                              <span>
+                                {formatDateTime(cp.timestamp, {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                  second: '2-digit',
+                                })}
+                              </span>
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Transit Duration & Total Elapsed */}
+                        <div className="pt-0.5 text-[10.5px] font-mono text-slate-500 space-y-0.5">
+                          {cp.durationFromPrev && (
+                            <div className="text-blue-700 font-semibold flex items-center gap-1">
+                              <span>⏱ Leg Transit:</span>
+                              <strong className="text-blue-900">{cp.durationFromPrev}</strong>
+                            </div>
+                          )}
+                          <div className="text-slate-500">
+                            <span>Journey Elapsed: {cp.totalElapsedStr}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Proof of Delivery Banner (if Delivered checkpoint) */}
+                    {isDeliveredCheckpoint && currentShipment.proofOfDelivery && (
+                      <div className="mt-3 p-3.5 bg-emerald-50/70 border border-emerald-200 rounded-lg">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex items-start gap-2.5">
+                            <div className="p-1.5 bg-emerald-600 text-white rounded-md">
+                              <CheckCircle2 className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <div className="font-bold text-xs text-emerald-950 uppercase font-mono">
+                                {t('tracker.podTitle')} · Direct Consignee Signature
+                              </div>
+                              <div className="text-xs text-emerald-800 mt-0.5">
+                                Recipient: <strong>{currentShipment.proofOfDelivery.recipientName}</strong> at{' '}
+                                <span className="font-mono">{formatTime(currentShipment.proofOfDelivery.deliveredAt)}</span>
+                              </div>
+                              <p className="text-[11px] text-emerald-700 mt-0.5 italic">
+                                "{currentShipment.proofOfDelivery.notes || 'Package received in good order. Signed on carrier glass.'}"
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Digital Signature Rendering */}
+                          <div className="bg-white px-2.5 py-1.5 border border-emerald-300 rounded-md flex flex-col items-center shadow-2xs">
+                            <span className="text-[8.5px] uppercase font-bold text-slate-400 font-mono">
+                              {t('tracker.signature')}
+                            </span>
+                            <svg width="100" height="28" viewBox="0 0 200 60" className="stroke-slate-900 fill-none stroke-2">
+                              <path d={currentShipment.proofOfDelivery.signatureSvg} />
+                            </svg>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -1559,6 +2160,14 @@ export const PackageTracker: React.FC<PackageTrackerProps> = ({
           shipment={currentShipment}
           unitSystem={unitSystem}
           onClose={() => setShowPrintSummaryModal(false)}
+        />
+      )}
+
+      {/* Official Freight & Shipping Receipt / Tax Invoice Modal */}
+      {showReceiptModal && (
+        <PrintableReceiptModal
+          shipment={currentShipment}
+          onClose={() => setShowReceiptModal(false)}
         />
       )}
     </div>

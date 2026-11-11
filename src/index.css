@@ -12,13 +12,60 @@
   }
 }
 
+/* Leaflet Map Styles & Custom Markers */
+.leaflet-container {
+  width: 100%;
+  height: 100%;
+  font-family: inherit;
+  z-index: 1;
+}
+
+.leaflet-popup-content-wrapper {
+  background: #ffffff;
+  color: #0f172a;
+  border-radius: 12px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.25), 0 8px 10px -6px rgba(0, 0, 0, 0.25);
+  border: 1px solid #e2e8f0;
+  padding: 0;
+}
+
+.leaflet-popup-content {
+  margin: 10px 12px;
+  line-height: 1.4;
+}
+
+.leaflet-popup-tip {
+  background: #ffffff;
+}
+
+/* UNIVERSAL PRINTING STYLESHEET: Supports 4x6 Thermal Labels, Invoices, Receipts, Manifests, and Reports */
 @media print {
-  body * {
+  /* Hide non-printable screen UI */
+  .no-print,
+  nav,
+  footer,
+  button:not(.force-print),
+  .leaflet-control-container,
+  .no-print-area {
+    display: none !important;
+  }
+
+  /* Reset document flow and backgrounds */
+  body, html {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    font-size: 11pt !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* If a dedicated 4x6 thermal shipping label is being printed */
+  body:has(#shipping-label-print-area:not(:empty)) * {
     visibility: hidden;
   }
 
-  #shipping-label-print-area,
-  #shipping-label-print-area * {
+  body:has(#shipping-label-print-area:not(:empty)) #shipping-label-print-area,
+  body:has(#shipping-label-print-area:not(:empty)) #shipping-label-print-area * {
     visibility: visible;
   }
 
@@ -36,8 +83,45 @@
     box-shadow: none !important;
   }
 
+  /* Printable documents, receipts, manifests, and handover certificates */
+  .printable-document,
+  .print-page,
+  .printable-manifest {
+    visibility: visible !important;
+    position: static !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+  }
+
+  .printable-document *,
+  .print-page *,
+  .printable-manifest * {
+    visibility: visible !important;
+    color-adjust: exact !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Retain clean borders and avoid awkward page breaks */
+  table, tr, td, th {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .print-avoid-break {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* Default page layout */
   @page {
-    size: 4in 6in;
-    margin: 0;
+    margin: 1.2cm;
+    size: auto;
   }
 }

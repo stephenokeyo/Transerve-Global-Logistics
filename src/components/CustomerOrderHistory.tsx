@@ -6,8 +6,9 @@ import {
   Package, Truck, CheckCircle2, ArrowRight, Clock, 
   MapPin, FileText, ChevronRight, Search, ShieldCheck,
   Calendar, X, RotateCcw, Filter, Building2, SlidersHorizontal,
-  PackageSearch
+  PackageSearch, Receipt, Printer
 } from 'lucide-react';
+import { PrintableReceiptModal } from './PrintableReceiptModal';
 
 interface CustomerOrderHistoryProps {
   currentUser: User;
@@ -29,6 +30,7 @@ export const CustomerOrderHistory: React.FC<CustomerOrderHistoryProps> = ({
   const [endDate, setEndDate] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'in_transit' | 'delivered'>('all');
   const [isFilterPanelOpen, setIsFilterPanelOpen] = useState(false);
+  const [receiptShipment, setReceiptShipment] = useState<Shipment | null>(null);
 
   // 1. Filter shipments belonging to or associated with this customer
   const baseCustomerOrders = useMemo(() => {
@@ -494,19 +496,39 @@ export const CustomerOrderHistory: React.FC<CustomerOrderHistoryProps> = ({
                     </span>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => onTrackShipment(order)}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold transition-colors shadow-xs cursor-pointer"
-                  >
-                    <span>{t('customer.trackOrder')}</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setReceiptShipment(order)}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-semibold transition-colors shadow-2xs cursor-pointer"
+                      title="Print Shipping Receipt & Tax Invoice"
+                    >
+                      <Receipt className="w-3.5 h-3.5" />
+                      <span>Receipt</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onTrackShipment(order)}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold transition-colors shadow-xs cursor-pointer"
+                    >
+                      <span>{t('customer.trackOrder')}</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               </div>
             );
           })}
         </div>
+      )}
+
+      {/* Printable Shipping Receipt & Tax Invoice Modal */}
+      {receiptShipment && (
+        <PrintableReceiptModal
+          shipment={receiptShipment}
+          onClose={() => setReceiptShipment(null)}
+        />
       )}
     </div>
   );

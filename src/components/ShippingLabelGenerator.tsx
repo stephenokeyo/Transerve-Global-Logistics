@@ -8,8 +8,10 @@ import { useI18n } from '../i18n/I18nContext';
 import { 
   Package, Truck, ArrowRight, ShieldCheck, Check, Sparkles, 
   Printer, Radio, FileText, Snowflake, Info, Zap, Calculator,
-  X, Copy, MapPin, Building, Calendar, DollarSign, CheckCircle2, ShieldAlert
+  X, Copy, MapPin, Building, Calendar, DollarSign, CheckCircle2, ShieldAlert,
+  Receipt
 } from 'lucide-react';
+import { PrintableReceiptModal } from './PrintableReceiptModal';
 
 interface ShippingLabelGeneratorProps {
   onShipmentCreated: (shipment: Shipment) => void;
@@ -70,6 +72,7 @@ export const ShippingLabelGenerator: React.FC<ShippingLabelGeneratorProps> = ({ 
   const [generatedShipment, setGeneratedShipment] = useState<Shipment | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [showPrintConfirmModal, setShowPrintConfirmModal] = useState(false);
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
   const [copiedTracking, setCopiedTracking] = useState(false);
 
   const handleCopyTracking = (trackingNum: string) => {
@@ -752,11 +755,21 @@ export const ShippingLabelGenerator: React.FC<ShippingLabelGeneratorProps> = ({ 
               + {t('generator.createAnother')}
             </button>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowReceiptModal(true)}
+                className="flex items-center gap-1.5 px-4 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors cursor-pointer"
+                title="Print Official Shipping Receipt & Tax Invoice"
+              >
+                <Receipt className="w-3.5 h-3.5" />
+                <span>Print Receipt &amp; Invoice</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => setShowPrintConfirmModal(true)}
-                className="flex items-center gap-1.5 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors"
+                className="flex items-center gap-1.5 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors cursor-pointer"
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span>{t('generator.printThermal')}</span>
@@ -765,7 +778,7 @@ export const ShippingLabelGenerator: React.FC<ShippingLabelGeneratorProps> = ({ 
               <button
                 type="button"
                 onClick={() => onShipmentCreated(generatedShipment)}
-                className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors"
+                className="flex items-center gap-2 px-6 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-xs transition-colors cursor-pointer"
               >
                 <span>{t('generator.viewManifest')}</span>
                 <ArrowRight className="w-4 h-4" />
@@ -1026,6 +1039,13 @@ export const ShippingLabelGenerator: React.FC<ShippingLabelGeneratorProps> = ({ 
         </div>
       )}
 
+      {/* Official Freight & Shipping Receipt / Tax Invoice Modal */}
+      {showReceiptModal && generatedShipment && (
+        <PrintableReceiptModal
+          shipment={generatedShipment}
+          onClose={() => setShowReceiptModal(false)}
+        />
+      )}
     </div>
   );
 };

@@ -1,4 +1,5 @@
 import { Carrier, ServiceLevel, Shipment, Checkpoint, Address, PackageDetails, RateOption, VehicleTelemetry } from '../types/shipping';
+import { resolveWorldwideLocation } from './globalTrackingService';
 
 export interface RateCalculationRequest {
   originZip: string;
@@ -241,7 +242,13 @@ export function generateCarrierTrackingNumber(carrier: Carrier): string {
 /**
  * Approximate geographical coordinates for US / Global city lookups
  */
-export function getCityCoordinates(city: string, state: string): { lat: number; lng: number } {
+export function getCityCoordinates(city: string, state: string, country?: string): { lat: number; lng: number } {
+  const query = `${city} ${state} ${country || ''}`.trim();
+  const globalMatch = resolveWorldwideLocation(query);
+  if (globalMatch) {
+    return { lat: globalMatch.lat, lng: globalMatch.lng };
+  }
+
   const normalized = `${city.trim().toLowerCase()}, ${state.trim().toLowerCase()}`;
   const KNOWN_COORDS: Record<string, { lat: number; lng: number }> = {
     'chicago, il': { lat: 41.8781, lng: -87.6298 },

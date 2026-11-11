@@ -7,8 +7,10 @@ import { useI18n } from '../i18n/I18nContext';
 import { 
   Search, Filter, Printer, Download, Eye, ArrowUpRight, 
   CheckSquare, Square, FileText, CheckCircle2, Truck, ShieldAlert, Check, 
-  AlertTriangle, Clock, AlertCircle, Sparkles, Send, BellRing
+  AlertTriangle, Clock, AlertCircle, Sparkles, Send, BellRing, Receipt, X
 } from 'lucide-react';
+import { PrintableReceiptModal } from './PrintableReceiptModal';
+import { generateCode128Barcode, getBarcodeSvgRects } from '../utils/barcodeGenerator';
 
 interface ShipmentManifestProps {
   shipments: Shipment[];
@@ -30,6 +32,7 @@ export const ShipmentManifest: React.FC<ShipmentManifestProps> = ({
   const [viewingLabelShipment, setViewingLabelShipment] = useState<Shipment | null>(null);
   const [inspectingSlaShipment, setInspectingSlaShipment] = useState<{ shipment: Shipment; sla: SlaInfo } | null>(null);
   const [showManifestSummary, setShowManifestSummary] = useState(false);
+  const [receiptShipment, setReceiptShipment] = useState<Shipment | null>(null);
   const [exportNotice, setExportNotice] = useState<string | null>(null);
   const [mitigationNotice, setMitigationNotice] = useState<string | null>(null);
 
@@ -408,11 +411,15 @@ export const ShipmentManifest: React.FC<ShipmentManifestProps> = ({
             <button
               type="button"
               onClick={() => setShowManifestSummary(true)}
-              disabled={selectedIds.length === 0}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-white rounded-lg text-xs font-semibold transition-colors shadow-xs"
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold transition-colors shadow-xs cursor-pointer"
+              title="Print Driver Pickup Manifest & Bill of Lading (SCAN Sheet)"
             >
               <Printer className="w-3.5 h-3.5" />
-              <span>{t('manifest.printScan')} ({selectedIds.length})</span>
+              <span>
+                {selectedIds.length > 0 
+                  ? `${t('manifest.printScan')} (${selectedIds.length})` 
+                  : `Print Manifest (All ${filteredShipments.length})`}
+              </span>
             </button>
           </div>
         </div>
@@ -688,6 +695,13 @@ export const ShipmentManifest: React.FC<ShipmentManifestProps> = ({
                         >
                           <Printer className="w-4 h-4" />
                         </button>
+                        <button
+                          onClick={() => setReceiptShipment(s)}
+                          className="p-1.5 rounded-md hover:bg-emerald-50 text-emerald-600 hover:text-emerald-700 transition-colors"
+                          title="Print Shipping Receipt & Tax Invoice"
+                        >
+                          <Receipt className="w-4 h-4" />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -856,79 +870,197 @@ export const ShipmentManifest: React.FC<ShipmentManifestProps> = ({
         </div>
       )}
 
-      {/* Printable Carrier Pickup Manifest Summary Sheet Modal */}
-      {showManifestSummary && (
-        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-              <div>
-                <h3 className="text-base font-bold text-slate-900">
-                  Carrier Driver Pickup Manifest (SCAN Sheet)
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Daily End of Day Driver Handover Document · Date: {new Date().toLocaleDateString()}
-                </p>
-              </div>
-              <button
-                onClick={() => setShowManifestSummary(false)}
-                className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 text-xs font-bold"
-              >
-                ✕
-              </button>
-            </div>
+      {/* Printable Carrier Pickup Manifest Summary Sheet Modal (SCAN Sheet & BOL) */}
+      {showManifestSummary && (() => {
+        const manifestPackages = selectedIds.length > 0 
+          ? shipments.filter(s => selectedIds.includes(s.id))
+          : filteredShipments;
+        const totalWeight = manifestPackages.reduce((acc, c) => acc + c.package.weightKg, 0);
+        const manifestId = "MF-2026-W45-0982";
+        const rawBarcode = generateCode128Barcode(manifestId);
+        const barcodeSvgString = getBarcodeSvgRects(rawBarcode.modules, 48, 1.8);
+        const barcodeTotalWidth = rawBarcode.width * 1.8;
 
-            <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-2">
-              <div className="flex justify-between font-mono">
-                <span>MANIFEST ID: <strong>MF-2026-W45-0982</strong></span>
-                <span>ORIGIN FACILITY: <strong>AERO-HUB-01</strong></span>
-              </div>
-              <div className="flex justify-between font-mono">
-                <span>TOTAL PACKAGES: <strong>{selectedIds.length}</strong></span>
-                <span>TOTAL WEIGHT: <strong>
-                  {shipments.filter(s => selectedIds.includes(s.id)).reduce((acc, c) => acc + c.package.weightKg, 0).toFixed(1)} KG
-                </strong></span>
-              </div>
-            </div>
-
-            <div className="max-h-60 overflow-y-auto border border-slate-200 rounded-lg divide-y divide-slate-100 text-xs">
-              {shipments.filter(s => selectedIds.includes(s.id)).map((s, i) => (
-                <div key={s.id} className="p-2.5 flex items-center justify-between font-mono">
-                  <div>
-                    <span className="font-bold">{i + 1}. {s.trackingNumber}</span>
-                    <span className="text-slate-500 block text-[10px]">{s.recipient.name} ({s.recipient.city}, {s.recipient.state})</span>
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+            <div className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-2xl space-y-4 printable-document print-page">
+              {/* Screen Top Bar */}
+              <div className="flex items-center justify-between pb-3 border-b border-slate-200 no-print">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-slate-900 text-white rounded-lg">
+                    <FileText className="w-5 h-5" />
                   </div>
-                  <span className="text-slate-700">{s.package.weightKg} kg · {s.serviceLevel}</span>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">
+                      Carrier Driver Pickup Manifest (SCAN Sheet)
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Daily End of Day Driver Handover Document & Bill of Lading
+                    </p>
+                  </div>
                 </div>
-              ))}
-            </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => window.print()}
+                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>Print Manifest</span>
+                  </button>
+                  <button
+                    onClick={() => setShowManifestSummary(false)}
+                    className="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 text-xs font-bold cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
 
-            <div className="pt-3 border-t border-slate-200 flex items-center justify-between text-xs">
-              <span className="text-slate-500">Carrier Courier Signature Required at pickup</span>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => window.print()}
-                  className="px-4 py-2 bg-slate-900 text-white font-medium rounded-lg hover:bg-slate-800 transition-colors flex items-center gap-1.5"
-                >
-                  <Printer className="w-3.5 h-3.5" />
-                  <span>Print Dispatch Manifest</span>
-                </button>
-                <button
-                  onClick={() => setShowManifestSummary(false)}
-                  className="px-4 py-2 bg-slate-100 text-slate-700 font-medium rounded-lg hover:bg-slate-200 transition-colors"
-                >
-                  Close
-                </button>
+              {/* Printable Header Document Section */}
+              <div className="border border-slate-300 rounded-lg p-4 space-y-3 bg-white">
+                <div className="flex items-start justify-between border-b border-slate-300 pb-3">
+                  <div>
+                    <div className="text-xs font-black tracking-wider uppercase text-blue-700">AeroFreight Global Logistics Network</div>
+                    <h1 className="text-lg font-black text-slate-900">CARRIER DISPATCH MANIFEST &amp; SCAN SHEET</h1>
+                    <p className="text-[11px] text-slate-500">Official Package Handover Record &amp; Proof of Custody Transfer</p>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[11px] font-mono text-slate-500">DATE: <span className="text-slate-900 font-bold">{new Date().toLocaleDateString()}</span></div>
+                    <div className="text-[11px] font-mono text-slate-500">DISPATCH TIME: <span className="text-slate-900 font-bold">{new Date().toLocaleTimeString()}</span></div>
+                    <div className="text-[11px] font-mono text-slate-500">ORIGIN HUB: <span className="text-slate-900 font-bold">AF-HUB-01 (Nairobi / Frankfurt Int'l)</span></div>
+                  </div>
+                </div>
+
+                {/* Barcode & Summary Stats */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center bg-slate-50 p-3 rounded-lg border border-slate-200">
+                  <div className="space-y-1">
+                    <div className="text-[10px] uppercase font-bold tracking-wider text-slate-500">Scan Sheet Barcode (Master Manifest ID)</div>
+                    <svg 
+                      viewBox={`0 0 ${barcodeTotalWidth} 48`} 
+                      className="h-12 w-auto max-w-full"
+                      dangerouslySetInnerHTML={{ __html: barcodeSvgString }}
+                    />
+                    <div className="font-mono text-xs font-bold tracking-widest text-slate-800">{manifestId}</div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                    <div className="bg-white p-2 rounded border border-slate-200">
+                      <span className="text-[10px] text-slate-500 block uppercase">Total Pieces</span>
+                      <strong className="text-base text-slate-900">{manifestPackages.length} PKGS</strong>
+                    </div>
+                    <div className="bg-white p-2 rounded border border-slate-200">
+                      <span className="text-[10px] text-slate-500 block uppercase">Total Gross Wt</span>
+                      <strong className="text-base text-slate-900">{totalWeight.toFixed(1)} KG</strong>
+                    </div>
+                    <div className="bg-white p-2 rounded border border-slate-200 col-span-2">
+                      <span className="text-[10px] text-slate-500 block uppercase">Carrier / Route Mode</span>
+                      <strong className="text-xs text-slate-900">Intermodal Multi-Carrier Fleet &amp; Flight Freight</strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Package Manifest Table */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs border border-slate-300">
+                    <thead className="bg-slate-100 text-slate-700 font-bold uppercase text-[10px]">
+                      <tr>
+                        <th className="p-2 border border-slate-300 w-8 text-center">#</th>
+                        <th className="p-2 border border-slate-300">Tracking Number</th>
+                        <th className="p-2 border border-slate-300">Shipper / Origin</th>
+                        <th className="p-2 border border-slate-300">Consignee / Destination</th>
+                        <th className="p-2 border border-slate-300 text-center">Carrier / Service</th>
+                        <th className="p-2 border border-slate-300 text-right">Weight</th>
+                        <th className="p-2 border border-slate-300 text-center">Scan Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 font-mono text-[11px]">
+                      {manifestPackages.map((s, idx) => (
+                        <tr key={s.id} className="hover:bg-slate-50">
+                          <td className="p-2 border border-slate-300 text-center font-bold">{idx + 1}</td>
+                          <td className="p-2 border border-slate-300 font-bold text-blue-700">{s.trackingNumber}</td>
+                          <td className="p-2 border border-slate-300 truncate max-w-[120px]">{s.shipper.city}, {s.shipper.country}</td>
+                          <td className="p-2 border border-slate-300 truncate max-w-[140px]">{s.recipient.name} ({s.recipient.city})</td>
+                          <td className="p-2 border border-slate-300 text-center">{s.carrier} - {s.serviceLevel}</td>
+                          <td className="p-2 border border-slate-300 text-right">{s.package.weightKg} kg</td>
+                          <td className="p-2 border border-slate-300 text-center text-emerald-700 font-bold">[ ACCEPTED ]</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Driver & Dispatcher Sign-off / Chain of Custody */}
+                <div className="grid grid-cols-2 gap-6 pt-4 border-t border-slate-300 text-xs">
+                  <div className="border border-slate-200 p-3 rounded space-y-4">
+                    <div className="font-bold text-slate-800 uppercase tracking-wide text-[10px]">Carrier Driver Verification</div>
+                    <div className="space-y-2 text-slate-600">
+                      <div className="border-b border-dashed border-slate-400 pb-1 flex justify-between">
+                        <span>Driver Name:</span>
+                        <span className="font-mono font-semibold">David K. Mwangi</span>
+                      </div>
+                      <div className="border-b border-dashed border-slate-400 pb-1 flex justify-between">
+                        <span>Vehicle / Plane Reg:</span>
+                        <span className="font-mono font-semibold">KBZ-492X / 5Y-GHL</span>
+                      </div>
+                      <div className="border-b border-dashed border-slate-400 pt-3 pb-1">
+                        <span className="text-[10px] text-slate-400 block">Driver Signature &amp; Date:</span>
+                        <div className="font-serif italic text-sm text-slate-800 pt-1">D. K. Mwangi — {new Date().toLocaleDateString()}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="border border-slate-200 p-3 rounded space-y-4">
+                    <div className="font-bold text-slate-800 uppercase tracking-wide text-[10px]">Warehouse Dispatch Officer</div>
+                    <div className="space-y-2 text-slate-600">
+                      <div className="border-b border-dashed border-slate-400 pb-1 flex justify-between">
+                        <span>Officer Name:</span>
+                        <span className="font-mono font-semibold">Sarah Jenkins (Badge #049)</span>
+                      </div>
+                      <div className="border-b border-dashed border-slate-400 pb-1 flex justify-between">
+                        <span>Tamper Seal #:</span>
+                        <span className="font-mono font-semibold">SL-9821-AF</span>
+                      </div>
+                      <div className="border-b border-dashed border-slate-400 pt-3 pb-1">
+                        <span className="text-[10px] text-slate-400 block">Officer Signature &amp; Seal:</span>
+                        <div className="font-serif italic text-sm text-slate-800 pt-1">S. Jenkins [VERIFIED &amp; DISPATCHED]</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="text-[10px] text-slate-400 text-center pt-2">
+                  Electronic SCAN sheet compliant with IATA Air Cargo standard procedures and postal parcel handover regulations.
+                </div>
+              </div>
+
+              {/* Screen Footer Actions */}
+              <div className="pt-3 border-t border-slate-200 flex items-center justify-between text-xs no-print">
+                <span className="text-slate-500">Ready to print or save as PDF</span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => window.print()}
+                    className="px-4 py-2 bg-slate-900 text-white font-medium rounded-lg hover:bg-slate-800 transition-colors flex items-center gap-1.5"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>Print Dispatch Manifest</span>
+                  </button>
+                  <button
+                    onClick={() => setShowManifestSummary(false)}
+                    className="px-4 py-2 bg-slate-100 text-slate-700 font-medium rounded-lg hover:bg-slate-200 transition-colors"
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Shipping Label Modal */}
       {viewingLabelShipment && (
         <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl relative">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-6">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-6 no-print">
               <div>
                 <h3 className="text-base font-bold text-slate-900">Carrier Shipping Label</h3>
                 <p className="text-xs text-slate-500 font-mono">{viewingLabelShipment.trackingNumber}</p>
@@ -943,7 +1075,7 @@ export const ShipmentManifest: React.FC<ShipmentManifestProps> = ({
 
             <ShippingLabel shipment={viewingLabelShipment} />
 
-            <div className="mt-6 pt-4 border-t border-slate-100 flex justify-end">
+            <div className="mt-6 pt-4 border-t border-slate-100 flex justify-end no-print">
               <button
                 onClick={() => setViewingLabelShipment(null)}
                 className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-medium rounded-lg"
@@ -953,6 +1085,14 @@ export const ShipmentManifest: React.FC<ShipmentManifestProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Official Freight & Shipping Receipt / Tax Invoice Modal */}
+      {receiptShipment && (
+        <PrintableReceiptModal
+          shipment={receiptShipment}
+          onClose={() => setReceiptShipment(null)}
+        />
       )}
     </div>
   );
