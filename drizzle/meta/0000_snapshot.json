@@ -1,0 +1,420 @@
+{
+  "id": "e5c2f588-627c-4dc4-9ebe-13940ec4c067",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.audit_logs": {
+      "name": "audit_logs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_name": {
+          "name": "user_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "details": {
+          "name": "details",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "timestamp": {
+          "name": "timestamp",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.shipments": {
+      "name": "shipments",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "tracking_number": {
+          "name": "tracking_number",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reference_number": {
+          "name": "reference_number",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "carrier": {
+          "name": "carrier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "service_level": {
+          "name": "service_level",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "shipper_name": {
+          "name": "shipper_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "shipper_company": {
+          "name": "shipper_company",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "shipper_street1": {
+          "name": "shipper_street1",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "shipper_city": {
+          "name": "shipper_city",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "shipper_state": {
+          "name": "shipper_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "shipper_zip": {
+          "name": "shipper_zip",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "shipper_country": {
+          "name": "shipper_country",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "shipper_email": {
+          "name": "shipper_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "recipient_name": {
+          "name": "recipient_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recipient_company": {
+          "name": "recipient_company",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "recipient_street1": {
+          "name": "recipient_street1",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recipient_city": {
+          "name": "recipient_city",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recipient_state": {
+          "name": "recipient_state",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recipient_zip": {
+          "name": "recipient_zip",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recipient_country": {
+          "name": "recipient_country",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recipient_email": {
+          "name": "recipient_email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "weight_kg": {
+          "name": "weight_kg",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "length_cm": {
+          "name": "length_cm",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "width_cm": {
+          "name": "width_cm",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "height_cm": {
+          "name": "height_cm",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "declared_value_usd": {
+          "name": "declared_value_usd",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "is_fragile": {
+          "name": "is_fragile",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "is_cold_chain": {
+          "name": "is_cold_chain",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "requires_signature": {
+          "name": "requires_signature",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "base_cost": {
+          "name": "base_cost",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "fuel_surcharge": {
+          "name": "fuel_surcharge",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "total_cost": {
+          "name": "total_cost",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "current_checkpoint_index": {
+          "name": "current_checkpoint_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "checkpoints_json": {
+          "name": "checkpoints_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "proof_of_delivery_json": {
+          "name": "proof_of_delivery_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "special_instructions": {
+          "name": "special_instructions",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "estimated_delivery": {
+          "name": "estimated_delivery",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "shipments_tracking_number_unique": {
+          "name": "shipments_tracking_number_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "tracking_number"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.users": {
+      "name": "users",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "uid": {
+          "name": "uid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'customer'"
+        },
+        "company": {
+          "name": "company",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "phone": {
+          "name": "phone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'active'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "last_login": {
+          "name": "last_login",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "users_uid_unique": {
+          "name": "users_uid_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "uid"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}
